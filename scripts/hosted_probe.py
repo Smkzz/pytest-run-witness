@@ -24,9 +24,18 @@ WRAPPER_INCOMPLETE = 10
 VERIFIER_INVALID = 11
 
 
+def _numeric_github_environment(name: str, fallback: str) -> str:
+    raw = os.environ.get(name)
+    if raw is None:
+        return fallback
+    if not raw.isascii() or not raw.isdecimal() or len(raw) > 20:
+        raise RuntimeError(f"{name} must be a short decimal integer")
+    return str(int(raw, 10))
+
+
 def _base_run_id() -> str:
-    run = os.environ.get("GITHUB_RUN_ID", "local")
-    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    run = _numeric_github_environment("GITHUB_RUN_ID", "local")
+    attempt = _numeric_github_environment("GITHUB_RUN_ATTEMPT", "1")
     return f"{run}-{attempt}"
 
 

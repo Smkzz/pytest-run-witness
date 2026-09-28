@@ -13,3 +13,18 @@ dist/
 .wheel-smoke/
 hosted-evidence/
 examples/demo/run-*/
+
+# Local configuration, credentials, keys, and common tool caches.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.*
+secrets.*
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/

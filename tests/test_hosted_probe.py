@@ -17,6 +17,23 @@ hosted_probe = importlib.util.module_from_spec(PROBE_SPEC)
 PROBE_SPEC.loader.exec_module(hosted_probe)
 
 
+def test_base_run_id_accepts_only_numeric_github_counters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_RUN_ID", "00123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "04")
+    assert hosted_probe._base_run_id() == "123-4"
+
+    monkeypatch.setenv("GITHUB_RUN_ID", "--receipt")
+    with pytest.raises(RuntimeError, match="GITHUB_RUN_ID"):
+        hosted_probe._base_run_id()
+
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1;echo")
+    with pytest.raises(RuntimeError, match="GITHUB_RUN_ATTEMPT"):
+        hosted_probe._base_run_id()
+
+
 def test_corrupt_receipt_scenario_does_not_follow_input_symlink(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
