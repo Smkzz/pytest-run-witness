@@ -62,7 +62,7 @@ class ExecutionLedger:
         self.expected: dict[str, str] = {}
         self.completed: set[str] = set()
         self.item_phases: dict[str, dict[str, Any]] = {}
-        self.xdist_collections: list[list[str]] = []
+        self.xdist_reference_collection: list[str] | None = None
         self.collection_seen = False
         self.collection_errors = 0
         self.invalid_reason: str | None = None
@@ -135,19 +135,28 @@ class ExecutionLedger:
         if not isinstance(ids, list) or len(ids) > MAX_TESTS or any(not isinstance(item, str) for item in ids):
             self.invalid_reason = self.invalid_reason or "INVALID_XDIST_COLLECTION"
             return
-        self.xdist_collections.append(ids)
+
+        if self.xdist_reference_collection is None:
+            # Persist the first complete worker collection immediately. xdist
+            # requires all workers to collect the same ordered item list; later
+            # workers are compared against this durable reference. If the
+            # controller dies before execution or before reconciliation
+            # completes, the independent verifier still has the denominator
+            # and rejects the unfinished session.
+            self.xdist_reference_collection = list(ids)
+            self._record_collection(ids)
+            return
+
+        if ids != self.xdist_reference_collection:
+            self.invalid_reason = self.invalid_reason or "XDIST_COLLECTION_MISMATCH"
 
     def _finalize_xdist_collection(self) -> None:
         if self.collection_seen or not self.xdist_enabled:
             return
-        if not self.xdist_collections:
+        if self.xdist_reference_collection is None:
             self.invalid_reason = self.invalid_reason or "NO_XDIST_COLLECTION"
             return
-        first = self.xdist_collections[0]
-        if any(current != first for current in self.xdist_collections[1:]):
-            self.invalid_reason = self.invalid_reason or "XDIST_COLLECTION_MISMATCH"
-            return
-        self._record_collection(first)
+        self._record_collection(self.xdist_reference_collection)
 
     def pytest_runtest_logreport(self, report: Any) -> None:
         if not self.collection_seen and self.xdist_enabled:

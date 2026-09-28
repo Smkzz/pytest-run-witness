@@ -539,23 +539,40 @@ def test_wrapper_death_is_detected_by_separate_verifier(tmp_path: Path) -> None:
                 process.wait(timeout=10)
 
 
-def test_xdist_controller_death_is_incomplete(tmp_path: Path) -> None:
+def test_xdist_controller_death_after_collection_keeps_durable_denominator(tmp_path: Path) -> None:
     if not importlib.util.find_spec("xdist"):
         pytest.skip("pytest-xdist is not installed")
     _write_suite(tmp_path, "def test_one(): pass\ndef test_two(): pass\n")
     (tmp_path / "conftest.py").write_text(
         "import os, pytest\n"
-        "@pytest.hookimpl(tryfirst=True)\n"
-        "def pytest_runtestloop(session):\n"
-        "    if os.environ.get('KILL_XDIST_CONTROLLER') == '1' and not hasattr(session.config, 'workerinput'):\n"
+        "_collections = 0\n"
+        "@pytest.hookimpl(trylast=True, optionalhook=True)\n"
+        "def pytest_xdist_node_collection_finished(node, ids):\n"
+        "    global _collections\n"
+        "    _collections += 1\n"
+        "    if os.environ.get('KILL_XDIST_CONTROLLER_AFTER_COLLECTION') == '1' and _collections >= 2:\n"
         "        os._exit(0)\n",
         encoding="utf-8",
     )
 
-    result = _run(tmp_path, "-q", "-n", "2", env={"KILL_XDIST_CONTROLLER": "1"})
+    result = _run(
+        tmp_path,
+        "-q",
+        "-n",
+        "2",
+        env={"KILL_XDIST_CONTROLLER_AFTER_COLLECTION": "1"},
+    )
+    receipt = (tmp_path / "receipt.jsonl").read_text(encoding="utf-8")
+    verified = _verify(tmp_path)
 
     assert result.returncode == 10
     assert "INCOMPLETE" in result.stdout
+    assert '"collected_tests":2' in receipt
+    assert "TEST_TERMINAL" not in receipt
+    assert "SESSION_FINISHED" not in receipt
+    assert verified.returncode == 11
+    assert "SESSION_NOT_FINISHED" in verified.stdout
+    assert "0/2 terminal results recorded" in verified.stdout
 
 
 def test_externally_killed_xdist_worker_is_incomplete(tmp_path: Path) -> None:

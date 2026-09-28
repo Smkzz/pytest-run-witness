@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from pytest_run_witness.journal import (
+    MAX_JSON_NESTING,
     MAX_LEDGER_EVENTS,
     JournalAppender,
     Verification,
@@ -189,6 +190,37 @@ def test_excessive_event_count_is_rejected_before_json_parsing(tmp_path: Path) -
 def test_bare_cr_bytes_do_not_bypass_event_count_guard(tmp_path: Path) -> None:
     path = tmp_path / "receipt.jsonl"
     path.write_bytes((b"{}\r" * (MAX_LEDGER_EVENTS + 1)) + b"\n")
+
+    result = verify_journal(path, RUN_ID)
+
+    assert result.state == "INCOMPLETE"
+    assert result.reason == "INVALID_LEDGER_JSON"
+
+
+def test_excessive_json_nesting_is_rejected_before_decoding(tmp_path: Path) -> None:
+    path = tmp_path / "receipt.jsonl"
+    depth = MAX_JSON_NESTING + 1
+    nested = ("[" * depth) + "0" + ("]" * depth)
+    path.write_text(
+        '{"schema_version":1,"type":"STARTED","seq":0,"run_id":"receipt-test-run","extra":'
+        + nested
+        + "}\n",
+        encoding="utf-8",
+    )
+
+    result = verify_journal(path, RUN_ID)
+
+    assert result.state == "INCOMPLETE"
+    assert result.reason == "INVALID_LEDGER_JSON"
+
+
+def test_oversized_json_integer_fails_closed(tmp_path: Path) -> None:
+    path = tmp_path / "receipt.jsonl"
+    path.write_bytes(
+        b'{"schema_version":'
+        + (b"9" * 10_000)
+        + b',"type":"STARTED","seq":0,"run_id":"receipt-test-run"}\n'
+    )
 
     result = verify_journal(path, RUN_ID)
 

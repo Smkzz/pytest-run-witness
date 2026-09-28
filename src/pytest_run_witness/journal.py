@@ -20,6 +20,7 @@ MAX_RUN_ID_CHARS = 128
 MAX_LEDGER_BYTES = 32 * 1024 * 1024
 MAX_LINE_BYTES = 8 * 1024 * 1024
 MAX_LEDGER_EVENTS = MAX_TESTS + 3
+MAX_JSON_NESTING = 64
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _ITEM_ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -157,6 +158,32 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _json_nesting_within_limit(raw: bytes) -> bool:
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:  # backslash
+                escaped = True
+            elif byte == 0x22:  # double quote
+                in_string = False
+            continue
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x7B, 0x5B):  # { [
+            depth += 1
+            if depth > MAX_JSON_NESTING:
+                return False
+        elif byte in (0x7D, 0x5D):  # } ]
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0 and not in_string and not escaped
+
+
 def _integer(value: Any, *, minimum: int = 0, maximum: int = 2**31 - 1) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= maximum
 
@@ -193,9 +220,11 @@ def verify_journal(path: Path, expected_run_id: str) -> Verification:
     lines = raw[:-1].split(b"\n")
     if not lines or any(not line or len(line) + 1 > MAX_LINE_BYTES for line in lines):
         return _incomplete("INVALID_LEDGER_LINE")
+    if any(not _json_nesting_within_limit(line) for line in lines):
+        return _incomplete("INVALID_LEDGER_JSON")
     try:
         events = [json.loads(line.decode("utf-8"), object_pairs_hook=_unique_object) for line in lines]
-    except (UnicodeDecodeError, json.JSONDecodeError, JournalError):
+    except (UnicodeDecodeError, json.JSONDecodeError, JournalError, ValueError, RecursionError):
         return _incomplete("INVALID_LEDGER_JSON")
     if any(not isinstance(event, dict) for event in events):
         return _incomplete("INVALID_LEDGER_EVENT")
