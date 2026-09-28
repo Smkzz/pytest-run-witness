@@ -16,9 +16,10 @@ run ID. If both jobs disappear, or the CI authority reports success without
 running the verifier, no code inside this library can repair the outer result.
 
 A receipt that has every item terminal but lacks `SESSION_FINISHED` is still
-incomplete. The final event is the only evidence that pytest's lifecycle reached
-its end. A torn JSON line, missing receipt, collection error, or unknown journal
-schema also fails closed.
+incomplete. A receipt that contains `SESSION_FINISHED` but lacks the following
+`DURABILITY_CONFIRMED` marker is also incomplete: that marker is written only
+after the session record's file sync succeeds. A torn JSON line, missing
+receipt, collection error, or unknown journal schema also fails closed.
 
 The supported hooks are pytest's collection-finish and report hooks plus
 pytest-xdist's worker-collection hook. Only the local Windows/Python/pytest

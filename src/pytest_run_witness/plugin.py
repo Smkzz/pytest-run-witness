@@ -230,6 +230,10 @@ class ExecutionLedger:
                 },
                 durable=True,
             )
+            # This marker is appended only after the SESSION_FINISHED fsync
+            # succeeds. The verifier requires it, so a late fsync failure
+            # cannot leave a cache-visible final record that verifies green.
+            self.writer.append({"type": "DURABILITY_CONFIRMED"})
         except (OSError, JournalError):
             self.invalid_reason = self.invalid_reason or "JOURNAL_WRITE_FAILED"
 

@@ -96,7 +96,7 @@ Options such as `-x` and `--maxfail` intentionally leave later collected tests u
 
 ## Why a separate verifier?
 
-The journal starts before pytest runs and records collection before test execution. The wrapper checks it when the child process exits, but a later process can verify the same receipt independently:
+The journal starts before pytest runs and records collection before test execution. At normal session end it file-syncs the final session record and then writes a post-sync confirmation marker; verification fails closed if that marker is missing. The wrapper checks the receipt when the child process exits, but a later process can verify the same receipt independently:
 
 ```console
 pytest-run-witness verify RECEIPT --run-id ID

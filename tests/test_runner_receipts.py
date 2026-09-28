@@ -29,6 +29,7 @@ def _write_journal(
     terminal_count: int = 3,
     finish: bool = True,
     collection_errors: int = 0,
+    confirm_durability: bool = True,
 ) -> list[str]:
     initialize_journal(path, run_id)
     writer = JournalAppender(path)
@@ -47,6 +48,8 @@ def _write_journal(
             },
             durable=True,
         )
+        if confirm_durability:
+            writer.append({"type": "DURABILITY_CONFIRMED"})
     writer.close()
     return ids
 
@@ -91,6 +94,57 @@ def test_missing_session_finish_is_incomplete_even_if_all_items_finished(tmp_pat
 
     assert result.state == "INCOMPLETE"
     assert result.reason == "SESSION_NOT_FINISHED"
+    assert result.missing_tests == 0
+
+
+def test_missing_durability_confirmation_is_incomplete(tmp_path: Path) -> None:
+    path = tmp_path / "receipt.jsonl"
+    _write_journal(path, confirm_durability=False)
+
+    result = verify_journal(path, RUN_ID)
+
+    assert result.state == "INCOMPLETE"
+    assert result.reason == "DURABILITY_NOT_CONFIRMED"
+    assert result.collected_tests == 3
+    assert result.terminal_tests == 3
+    assert result.missing_tests == 0
+
+
+def test_failed_final_fsync_cannot_verify_complete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "receipt.jsonl"
+    initialize_journal(path, RUN_ID)
+    writer = JournalAppender(path)
+    items = [f"a{i:031d}" for i in range(3)]
+    ids = [item_digest(SALT, item) for item in items]
+    writer.append(
+        {"type": "COLLECTION_COMPLETE", "collected_tests": len(ids), "item_ids": sorted(ids)},
+        durable=True,
+    )
+    for item_id in ids:
+        writer.append({"type": "TEST_TERMINAL", "item_id": item_id})
+
+    def fail_fsync(_fd: int) -> None:
+        raise OSError("simulated final fsync failure")
+
+    monkeypatch.setattr(os, "fsync", fail_fsync)
+    with pytest.raises(OSError, match="simulated final fsync failure"):
+        writer.append(
+            {
+                "type": "SESSION_FINISHED",
+                "pytest_exit_code": 0,
+                "collection_errors": 0,
+                "incomplete_reason": None,
+            },
+            durable=True,
+        )
+    writer.close()
+
+    result = verify_journal(path, RUN_ID)
+
+    assert result.state == "INCOMPLETE"
+    assert result.reason == "DURABILITY_NOT_CONFIRMED"
+    assert result.collected_tests == 3
+    assert result.terminal_tests == 3
     assert result.missing_tests == 0
 
 

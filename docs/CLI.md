@@ -64,7 +64,8 @@ numbers, and a final newline. Unknown fields and event types are rejected.
 | `STARTED` | `schema_version` (integer `1`), `type`, `seq` (integer `0`), `run_id` (string) | File-synced run header; written before pytest starts. |
 | `COLLECTION_COMPLETE` | `seq`, `type`, `collected_tests` (integer), `item_ids` (array of unique 32-character lowercase hex digests) | The exact nonempty set selected by pytest. |
 | `TEST_TERMINAL` | `seq`, `type`, `item_id` (one collected digest) | One selected item reached its teardown report. |
-| `SESSION_FINISHED` | `seq`, `type`, `pytest_exit_code` (integer), `collection_errors` (integer), `incomplete_reason` (string or `null`) | Pytest's session-finish record and collection status. |
+| `SESSION_FINISHED` | `seq`, `type`, `pytest_exit_code` (integer), `collection_errors` (integer), `incomplete_reason` (string or `null`) | Pytest's session-finish record and collection status; this record is file-synced. |
+| `DURABILITY_CONFIRMED` | `seq`, `type` | Written only after the `SESSION_FINISHED` file sync succeeds; required for verification. |
 
 `seq` is a zero-based, gap-free integer sequence across all events. Item IDs
 are keyed digests of pytest node IDs; raw node IDs and file paths are not
@@ -73,10 +74,11 @@ and the journal at 32 MiB.
 
 The verifier reports `COMPLETE` only when the journal is structurally valid,
 the expected run ID matches, the collection is nonempty, every collected item
-has exactly one terminal event, and `SESSION_FINISHED` reports no collection
-error or incomplete reason. Empty collections and missing terminal events are
-`GAP`; missing finalization, malformed data, stale identities, and invariant
-violations are `INCOMPLETE`. Both states fail closed.
+has exactly one terminal event, `SESSION_FINISHED` reports no collection
+error or incomplete reason, and the following `DURABILITY_CONFIRMED` marker
+is present. Empty collections and missing terminal events are `GAP`; missing
+finalization or durability confirmation, malformed data, stale identities, and
+invariant violations are `INCOMPLETE`. Both states fail closed.
 
 This receipt is completion evidence for one declared pytest invocation. It
 does not prove that all intended tests or CI matrix jobs were selected or run,

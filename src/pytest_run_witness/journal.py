@@ -19,7 +19,7 @@ MAX_NODEID_CHARS = 16_384
 MAX_RUN_ID_CHARS = 128
 MAX_LEDGER_BYTES = 32 * 1024 * 1024
 MAX_LINE_BYTES = 8 * 1024 * 1024
-MAX_LEDGER_EVENTS = MAX_TESTS + 3
+MAX_LEDGER_EVENTS = MAX_TESTS + 4
 MAX_JSON_NESTING = 64
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -250,10 +250,13 @@ def verify_journal(path: Path, expected_run_id: str) -> Verification:
     expected_ids: set[str] | None = None
     terminal_ids: set[str] = set()
     session: dict[str, Any] | None = None
+    durability_confirmed = False
     for sequence, event in enumerate(events[1:], start=1):
         if type(event.get("seq")) is not int or event.get("seq") != sequence:
             return _incomplete("INVALID_EVENT_SEQUENCE", run_id=run_id)
         event_type = event.get("type")
+        if durability_confirmed:
+            return _incomplete("INVALID_DURABILITY_ORDER", run_id=run_id)
         if event_type == "COLLECTION_COMPLETE":
             if expected_ids is not None or terminal_ids or session is not None:
                 return _incomplete("INVALID_COLLECTION_ORDER", run_id=run_id)
@@ -298,6 +301,10 @@ def verify_journal(path: Path, expected_run_id: str) -> Verification:
             ):
                 return _incomplete("INVALID_SESSION_FIELDS", run_id=run_id)
             session = event
+        elif event_type == "DURABILITY_CONFIRMED":
+            if session is None or set(event) != {"seq", "type"}:
+                return _incomplete("INVALID_DURABILITY_EVENT", run_id=run_id)
+            durability_confirmed = True
         else:
             return _incomplete("UNKNOWN_LEDGER_EVENT", run_id=run_id)
 
@@ -307,6 +314,18 @@ def verify_journal(path: Path, expected_run_id: str) -> Verification:
         missing = collected - terminal if collected is not None and terminal is not None else None
         return _incomplete(
             "SESSION_NOT_FINISHED",
+            run_id=run_id,
+            collected_tests=collected,
+            terminal_tests=terminal,
+            missing_tests=missing,
+        )
+
+    if not durability_confirmed:
+        collected = len(expected_ids) if expected_ids is not None else None
+        terminal = len(terminal_ids) if expected_ids is not None else None
+        missing = collected - terminal if collected is not None and terminal is not None else None
+        return _incomplete(
+            "DURABILITY_NOT_CONFIRMED",
             run_id=run_id,
             collected_tests=collected,
             terminal_tests=terminal,

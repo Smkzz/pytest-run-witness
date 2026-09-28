@@ -12,7 +12,10 @@ power-loss durability for the rename.
 The explicitly loaded pytest plugin appends `COLLECTION_COMPLETE` before test
 execution, then one `TEST_TERMINAL` event after each item receives its teardown
 report. It appends `SESSION_FINISHED` with pytest's exit code and collection
-error count. Journal records are JSON Lines, written without a Python output
+error count and file-syncs that record. Only after that sync succeeds does it
+append `DURABILITY_CONFIRMED`. The verifier requires this post-sync marker,
+so a cache-visible `SESSION_FINISHED` whose sync failed cannot verify as
+complete. Journal records are JSON Lines, written without a Python output
 buffer. The collection and session records are synced; individual test events
 are not synced one by one. A torn final record is rejected.
 
@@ -70,7 +73,7 @@ receipt proves lifecycle completion, not test success or result quality.
 
 | Journal result | Meaning | Wrapper result |
 | --- | --- | --- |
-| `COMPLETE` | Nonempty collection; every collected item reached teardown; session finish is present | Preserve pytest exit code |
+| `COMPLETE` | Nonempty collection; every collected item reached teardown; session finish is present and its post-sync durability marker is present | Preserve pytest exit code |
 | `GAP` | Session finished after an empty collection or without terminal events for all collected items | Wrapper exit 10 |
 | `INCOMPLETE` | No session finish, invalid/corrupt/stale journal, collection error, invalid hook sequence, or xdist collection failure | Wrapper exit 10 |
 
