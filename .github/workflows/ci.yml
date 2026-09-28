@@ -114,3 +114,27 @@ jobs:
       - name: Verify each receipt and expected fail-closed case
         if: always()
         run: python scripts/hosted_probe.py verify --input hosted-evidence
+
+  ci-gate:
+    if: always()
+    needs:
+      - compatibility
+      - pytest-floor
+      - pytest-current
+      - package
+      - hosted-producer
+      - hosted-verifier
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI lane to succeed
+        run: |
+          for result in \
+            "${{ needs.compatibility.result }}" \
+            "${{ needs.pytest-floor.result }}" \
+            "${{ needs.pytest-current.result }}" \
+            "${{ needs.package.result }}" \
+            "${{ needs.hosted-producer.result }}" \
+            "${{ needs.hosted-verifier.result }}"
+          do
+            test "$result" = "success"
+          done
