@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytest-run-witness"
+version = "0.1.0"
+description = "Fail closed when pytest stops before every collected test reaches a terminal outcome."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11,<3.15"
+dependencies = ["pytest>=7.1.3,<10"]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["pytest", "testing", "ci", "xdist", "verification", "reliability"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: Pytest",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Testing",
+]
+
+[project.optional-dependencies]
+test = ["pytest-xdist>=3.6,<4"]
+
+[project.scripts]
+pytest-run-witness = "pytest_run_witness.runner:main"
+
+[project.urls]
+Homepage = "https://github.com/Smkzz/pytest-run-witness"
+Repository = "https://github.com/Smkzz/pytest-run-witness"
+Issues = "https://github.com/Smkzz/pytest-run-witness/issues"
+Changelog = "https://github.com/Smkzz/pytest-run-witness/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/Smkzz/pytest-run-witness/tree/main/docs"
+Security = "https://github.com/Smkzz/pytest-run-witness/security/advisories/new"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

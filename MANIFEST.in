@@ -1,0 +1,11 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include SECURITY.md
+include CONTRIBUTING.md
+include RELEASING.md
+recursive-include docs *.md
+recursive-include evidence *.json *.txt
+recursive-include examples *.md *.ps1 *.yml
+recursive-include scripts *.py
+recursive-include tests *.py

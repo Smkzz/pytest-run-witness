@@ -1,0 +1,45 @@
+name: pytest completion proof
+
+on: push
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      WITNESS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: python -m pip install pytest-run-witness pytest pytest-xdist
+      - run: pytest-run-witness --receipt receipt.jsonl --run-id "$WITNESS_RUN_ID" -- pytest -n auto
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pytest-run-witness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: receipt.jsonl
+          if-no-files-found: error
+
+  verify:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      WITNESS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: python -m pip install pytest-run-witness
+      - if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: pytest-run-witness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence
+      - if: always()
+        run: pytest-run-witness verify evidence/receipt.jsonl --run-id "$WITNESS_RUN_ID"
