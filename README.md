@@ -4,6 +4,12 @@
 
 `pytest-run-witness` wraps one pytest invocation, records the collected item set before execution, and writes a durable receipt as tests finish. A separate process can later verify that every collected item reached teardown.
 
+## Why this exists
+
+Pytest's exit code tells you how a process ended, but it is not independent evidence that every item collected for that invocation reached a terminal outcome. A run can stop after collection because of a crash, abrupt termination, xdist worker loss, `-x`, or `--maxfail`.
+
+`pytest-run-witness` makes the denominator durable before execution and then reconciles it against terminal teardown events. If completion cannot be proven, it refuses to certify the run.
+
 A normal completed run looks like this:
 
 ```console
@@ -28,11 +34,57 @@ python -m pip install pytest-run-witness
 
 Python 3.11–3.14 and pytest 7.1.3–9.x are supported by the 0.1.x release line. `pytest-xdist` is optional and is used only when your own pytest command uses it.
 
-For development and the bundled xdist tests:
+## 30-second quickstart
+
+Run pytest through the wrapper, write a receipt to a stable path, then verify that receipt independently:
 
 ```console
-python -m pip install -e ".[test]"
+python -m pip install pytest-run-witness
+
+pytest-run-witness \
+  --receipt .pytest-run-witness/receipt.jsonl \
+  --run-id demo-1 \
+  -- tests -q
+
+pytest-run-witness verify \
+  .pytest-run-witness/receipt.jsonl \
+  --run-id demo-1
 ```
+
+A complete run ends with output such as:
+
+```text
+VERIFIED 42/42
+```
+
+The verifier must receive the same run ID. That prevents a stale receipt from an earlier run from satisfying the check.
+
+## How it works
+
+```text
+producer CI job
+      |
+      v
+pytest-run-witness ---> pytest
+      |
+      v
+ durable JSONL receipt
+      |
+      |  collected item set
+      |  terminal outcomes
+      |  final durability marker
+      v
+CI artifact / shared storage
+      |
+      v
+independent verifier job
+      |
+      +-- complete ----> exit 0
+      |
+      +-- incomplete --> exit 11
+```
+
+The producer and verifier can be separate CI jobs. The verifier does not trust the producer job's conclusion; it checks the receipt itself.
 
 ## Use it
 
@@ -46,20 +98,43 @@ pytest-run-witness -- -k smoke -m "not slow"
 
 The wrapper launches `python -m pytest` with the same interpreter, working directory, environment, arguments, and configured plugins.
 
-For a receipt that can be checked by a later CI step or job, choose a stable path and run ID:
+On GitHub Actions, a convenient run identity is `${{ github.run_id }}-${{ github.run_attempt }}`. See [examples/github-actions.yml](examples/github-actions.yml) for a complete two-job producer/verifier example.
 
-```console
-pytest-run-witness \
-  --receipt .pytest-run-witness/receipt.jsonl \
-  --run-id 123456-1 \
-  -- tests -q -n auto
+## CLI reference
 
-pytest-run-witness verify \
-  .pytest-run-witness/receipt.jsonl \
-  --run-id 123456-1
+Run one pytest invocation:
+
+```text
+pytest-run-witness [--receipt PATH] [--run-id ID] -- [pytest arguments ...]
 ```
 
-On GitHub Actions, a convenient run identity is `${{ github.run_id }}-${{ github.run_attempt }}`. See [examples/github-actions.yml](examples/github-actions.yml) for a two-job producer/verifier example.
+Verify an existing receipt:
+
+```text
+pytest-run-witness verify RECEIPT --run-id ID
+```
+
+- `--receipt PATH` chooses the receipt location. If omitted, the wrapper creates a unique receipt under `.pytest-run-witness/`.
+- `--run-id ID` binds the receipt to the current invocation. The wrapper generates one if omitted.
+- Everything after `--` is forwarded to pytest.
+- The verifier requires the expected run ID through `--run-id` or `PYTEST_RUN_WITNESS_RUN_ID`.
+
+See the [full CLI and receipt contract](docs/CLI.md) for the complete behavior and schema rules.
+
+## Receipt format
+
+Receipts are UTF-8 JSON Lines. A small successful run has this shape:
+
+```json
+{"schema_version":1,"type":"STARTED","seq":0,"run_id":"demo-1"}
+{"seq":1,"type":"COLLECTION_COMPLETE","collected_tests":2,"item_ids":["0123456789abcdef0123456789abcdef","fedcba9876543210fedcba9876543210"]}
+{"seq":2,"type":"TEST_TERMINAL","item_id":"0123456789abcdef0123456789abcdef"}
+{"seq":3,"type":"TEST_TERMINAL","item_id":"fedcba9876543210fedcba9876543210"}
+{"seq":4,"type":"SESSION_FINISHED","pytest_exit_code":0,"collection_errors":0,"incomplete_reason":null}
+{"seq":5,"type":"DURABILITY_CONFIRMED"}
+```
+
+Each wrapper invocation generates a fresh 32-byte key and derives item IDs with HMAC-SHA256, truncated to 32 lowercase hexadecimal characters. Raw pytest node IDs and file paths are not written to the receipt. The verifier requires exact event fields and ordering, a matching run identity, one terminal event per collected item, and the final post-sync durability marker.
 
 ## Exit behavior
 
@@ -115,6 +190,15 @@ The guarantee is deliberately narrow:
 - The receipt stores keyed item digests rather than node IDs or paths.
 - A torn, malformed, stale, wrong-run, or incomplete journal fails closed.
 - The wrapper does not manage external timeouts or guarantee process-tree termination.
+
+## When not to use this
+
+`pytest-run-witness` is intentionally narrow. It is not the right tool when you need to:
+
+- prove that every intended CI matrix job, shard, or workflow was scheduled;
+- isolate the receipt from malicious test code or pytest plugins running as the same user;
+- enforce wall-clock timeouts or terminate an entire descendant process tree;
+- replace ordinary pytest exit handling when you do not need an independently verifiable completion receipt.
 
 See [Architecture](docs/ARCHITECTURE.md), [CLI contract](docs/CLI.md), [Limitations](docs/LIMITATIONS.md), and the [failure-mode matrix](docs/FAILURE_MODE_MATRIX.md).
 
